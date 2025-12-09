@@ -1,0 +1,3 @@
+-   `@BLUR_IMPLEMENTATION_REFERENCE`.md is the core dev plan
+-   Save CURRENT implementation state in `@IMPL_STATE.md`, replace whole contents by each update
+-   Expand current development plan into detail todo list and concat the list to `@TODO.md` before starting implementing, always maintain the todo list after each implementation
