@@ -18,3 +18,4 @@ rootProject.name = "blur-android"
 
 include(":blur-core")
 include(":sample")
+include(":blur-cmp")
