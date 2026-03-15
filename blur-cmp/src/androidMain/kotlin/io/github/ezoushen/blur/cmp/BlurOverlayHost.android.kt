@@ -152,17 +152,17 @@ private fun findBlurContainer(decorView: ViewGroup): FrameLayout? {
 
 private fun updateBlurContainer(container: FrameLayout, config: BlurOverlayConfig) {
     val blurView = container.getChildAt(0)
+    val decorView = container.parent as? ViewGroup ?: return
 
     when {
         // Switching from uniform to variable requires recreation
         config.gradient != null && blurView is BlurView -> {
-            val parent = container.parent as? ViewGroup ?: return
             container.removeAllViews()
             val newBlur = VariableBlurView(container.context).apply {
                 setBlurConfig(AndroidGradientMapper.toBlurConfig(config))
                 setBlurGradient(AndroidGradientMapper.toBlurGradient(config.gradient, config.radius))
                 setIsLive(config.isLive)
-                setBlurredView(parent)
+                setBlurredView(decorView)
             }
             container.addView(
                 newBlur,
@@ -175,12 +175,11 @@ private fun updateBlurContainer(container: FrameLayout, config: BlurOverlayConfi
         }
 
         config.gradient == null && blurView is VariableBlurView -> {
-            val parent = container.parent as? ViewGroup ?: return
             container.removeAllViews()
             val newBlur = BlurView(container.context).apply {
                 setBlurConfig(AndroidGradientMapper.toBlurConfig(config))
                 setIsLive(config.isLive)
-                setBlurredView(parent)
+                setBlurredView(decorView)
             }
             container.addView(
                 newBlur,
@@ -245,6 +244,7 @@ private class TintOverlayView(
     private val paint = Paint()
 
     init {
+        setWillNotDraw(false)
         updateConfig(config)
     }
 

@@ -21,6 +21,8 @@ import platform.UIKit.UIViewAutoresizingFlexibleHeight
 import platform.UIKit.UIViewAutoresizingFlexibleWidth
 import platform.UIKit.UIVisualEffectView
 import platform.UIKit.UIWindow
+import platform.UIKit.UIWindowScene
+import platform.UIKit.UISceneActivationStateForegroundActive
 
 @OptIn(ExperimentalForeignApi::class)
 @Composable
@@ -32,7 +34,7 @@ actual fun BlurOverlayHost(
     val currentState by rememberUpdatedState(state)
 
     DisposableEffect(Unit) {
-        val window = UIApplication.sharedApplication.keyWindow ?: run {
+        val window = getKeyWindow() ?: run {
             return@DisposableEffect onDispose { }
         }
 
@@ -54,7 +56,7 @@ actual fun BlurOverlayHost(
         snapshotFlow { currentState.config }
             .distinctUntilChanged()
             .collectLatest { config ->
-                val window = UIApplication.sharedApplication.keyWindow ?: return@collectLatest
+                val window = getKeyWindow() ?: return@collectLatest
                 val blurView = findIosBlurView(window) ?: return@collectLatest
                 updateIosBlurView(window, blurView, config)
             }
@@ -65,7 +67,7 @@ actual fun BlurOverlayHost(
         snapshotFlow { currentState.isEnabled }
             .distinctUntilChanged()
             .collectLatest { enabled ->
-                val window = UIApplication.sharedApplication.keyWindow ?: return@collectLatest
+                val window = getKeyWindow() ?: return@collectLatest
                 val blurView = findIosBlurView(window) ?: return@collectLatest
                 blurView.setHidden(!enabled)
             }
@@ -78,12 +80,12 @@ private const val BLUR_VIEW_TAG: Long = 0x426C7572L
 
 @OptIn(ExperimentalForeignApi::class)
 private fun createIosBlurView(config: BlurOverlayConfig): UIView {
-    // Map blur radius to the nearest system material style.
+    // Map blur radius to the nearest system material style (light → heavy).
     val blurStyle: UIBlurEffectStyle = when {
-        config.radius <= 5f -> UIBlurEffectStyle.UIBlurEffectStyleSystemThinMaterial
-        config.radius <= 15f -> UIBlurEffectStyle.UIBlurEffectStyleSystemMaterial
-        config.radius <= 30f -> UIBlurEffectStyle.UIBlurEffectStyleSystemThickMaterial
-        else -> UIBlurEffectStyle.UIBlurEffectStyleSystemUltraThinMaterial
+        config.radius <= 5f -> UIBlurEffectStyle.UIBlurEffectStyleSystemUltraThinMaterial
+        config.radius <= 15f -> UIBlurEffectStyle.UIBlurEffectStyleSystemThinMaterial
+        config.radius <= 30f -> UIBlurEffectStyle.UIBlurEffectStyleSystemMaterial
+        else -> UIBlurEffectStyle.UIBlurEffectStyleSystemThickMaterial
     }
 
     val blurEffect = UIBlurEffect.effectWithStyle(blurStyle)
@@ -134,4 +136,25 @@ private fun updateIosBlurView(window: UIWindow, existing: UIView, config: BlurOv
     newView.autoresizingMask =
         UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
     window.insertSubview(newView, atIndex = 0)
+}
+
+/**
+ * Gets the key window using the modern UIWindowScene API (iOS 15+).
+ * Falls back to the deprecated keyWindow property for compatibility.
+ */
+@Suppress("DEPRECATION")
+private fun getKeyWindow(): UIWindow? {
+    val scenes = UIApplication.sharedApplication.connectedScenes
+    for (scene in scenes) {
+        val windowScene = scene as? UIWindowScene ?: continue
+        if (windowScene.activationState == UISceneActivationStateForegroundActive) {
+            val windows = windowScene.windows
+            for (window in windows) {
+                val uiWindow = window as? UIWindow ?: continue
+                if (uiWindow.isKeyWindow()) return uiWindow
+            }
+        }
+    }
+    // Fallback for older scene configurations
+    return UIApplication.sharedApplication.keyWindow
 }

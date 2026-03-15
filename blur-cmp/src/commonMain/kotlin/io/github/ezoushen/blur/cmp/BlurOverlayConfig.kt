@@ -20,30 +20,28 @@ data class BlurOverlayConfig(
     val gradient: BlurGradientType? = null,
     val isLive: Boolean = true,
 ) {
+    init {
+        require(radius >= 0f) { "radius must be >= 0, was $radius" }
+        require(downsampleFactor >= 1f) { "downsampleFactor must be >= 1, was $downsampleFactor" }
+    }
+
     companion object {
-        val Default: BlurOverlayConfig
-            get() = BlurOverlayConfig()
+        val Default = BlurOverlayConfig()
 
-        val Light: BlurOverlayConfig
-            get() = BlurOverlayConfig(
-                radius = 10f,
-                // Color(1f, 1f, 1f, 0.25f) packed: alpha=0.25, RGB=white
-                tintColorValue = packColor(1f, 1f, 1f, 0.25f),
-            )
+        val Light = BlurOverlayConfig(
+            radius = 10f,
+            tintColorValue = packColor(1f, 1f, 1f, 0.25f),
+        )
 
-        val Dark: BlurOverlayConfig
-            get() = BlurOverlayConfig(
-                radius = 20f,
-                // Color(0f, 0f, 0f, 0.4f) packed: alpha=0.4, RGB=black
-                tintColorValue = packColor(0f, 0f, 0f, 0.4f),
-            )
+        val Dark = BlurOverlayConfig(
+            radius = 20f,
+            tintColorValue = packColor(0f, 0f, 0f, 0.4f),
+        )
 
-        val Heavy: BlurOverlayConfig
-            get() = BlurOverlayConfig(
-                radius = 50f,
-                // Color(1f, 1f, 1f, 0.5f) packed: alpha=0.5, RGB=white
-                tintColorValue = packColor(1f, 1f, 1f, 0.5f),
-            )
+        val Heavy = BlurOverlayConfig(
+            radius = 50f,
+            tintColorValue = packColor(1f, 1f, 1f, 0.5f),
+        )
 
         /**
          * Packs RGBA float components into a Long matching Compose Color's internal format.
