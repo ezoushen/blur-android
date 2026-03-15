@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.compose.multiplatform.plugin)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.android.library)
+    `maven-publish`
 }
 
 kotlin {
@@ -54,5 +55,39 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+    }
+}
+
+afterEvaluate {
+    publishing {
+        publications.withType<MavenPublication> {
+            groupId = findProperty("GROUP")?.toString() ?: "io.github.ezoushen"
+            version = findProperty("VERSION_NAME")?.toString() ?: "1.0.0"
+
+            pom {
+                name.set("blur-cmp")
+                description.set("Compose Multiplatform real-time blur overlay for Android and iOS")
+                url.set("https://github.com/ezoushen/blur-android")
+                licenses {
+                    license {
+                        name.set("Apache License 2.0")
+                        url.set("https://www.apache.org/licenses/LICENSE-2.0")
+                    }
+                }
+            }
+        }
+
+        repositories {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/ezoushen/blur-android")
+                credentials {
+                    username = System.getenv("GITHUB_ACTOR")
+                        ?: findProperty("gpr.user")?.toString()
+                    password = System.getenv("GITHUB_TOKEN")
+                        ?: findProperty("gpr.token")?.toString()
+                }
+            }
+        }
     }
 }
