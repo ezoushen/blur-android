@@ -45,6 +45,7 @@ import com.example.blur.sample.ui.theme.BlurSampleTheme
 import io.github.ezoushen.blur.cmp.BlurBlendMode
 import io.github.ezoushen.blur.cmp.BlurOverlayConfig
 import io.github.ezoushen.blur.cmp.BlurOverlayHost
+import io.github.ezoushen.blur.cmp.demo.BlurCmpDemoScreen
 import io.github.ezoushen.blur.cmp.rememberBlurOverlayState
 import io.github.ezoushen.blur.cmp.withTint
 
@@ -66,19 +67,27 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun BlurSampleScreen() {
-    // Top-level mode: 0 = blur-core demo, 1 = blur-cmp overlay demo
+    // Top-level mode: 0 = blur-core demo, 1 = blur-cmp overlay demo, 2 = CMP Demo (shared)
     var demoMode by remember { mutableIntStateOf(0) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AnimatedBackground(modifier = Modifier.fillMaxSize())
 
-        if (demoMode == 0) {
-            BlurCoreDemoContent(
+        when (demoMode) {
+            0 -> BlurCoreDemoContent(
                 demoMode = demoMode,
                 onDemoModeChange = { demoMode = it },
             )
-        } else {
-            BlurCmpDemoContent(
+            1 -> BlurCmpDemoContent(
+                demoMode = demoMode,
+                onDemoModeChange = { demoMode = it },
+            )
+            2 -> BlurCmpDemoScreen()
+        }
+
+        // Floating mode selector when in CMP Demo mode (shared screen has its own tabs)
+        if (demoMode == 2) {
+            DemoModeSelector(
                 demoMode = demoMode,
                 onDemoModeChange = { demoMode = it },
             )
@@ -428,6 +437,11 @@ private fun DemoModeSelector(
             text = "CMP",
             selected = demoMode == 1,
             onClick = { onDemoModeChange(1) }
+        )
+        ModeChip(
+            text = "CMP Demo",
+            selected = demoMode == 2,
+            onClick = { onDemoModeChange(2) }
         )
     }
 }
