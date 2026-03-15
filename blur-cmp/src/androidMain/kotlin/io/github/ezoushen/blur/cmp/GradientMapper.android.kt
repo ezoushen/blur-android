@@ -7,8 +7,13 @@ import com.example.blur.BlurGradient
 internal object AndroidGradientMapper {
 
     fun toBlurConfig(config: BlurOverlayConfig): BlurConfig {
-        // Extract ARGB int from the packed Long, or null if no tint
-        val overlayArgb: Int? = if (config.tintColorValue != 0L) {
+        // Only pass overlayColor to blur-core when blend mode is Normal.
+        // For non-Normal blend modes, the tint is applied by a separate
+        // TintOverlayView using Android's BlendMode API — passing it here
+        // too would double-apply the tint.
+        val overlayArgb: Int? = if (config.tintColorValue != 0L &&
+            config.tintBlendMode == BlurBlendMode.Normal
+        ) {
             config.tintColorValue.toInt()
         } else {
             null
