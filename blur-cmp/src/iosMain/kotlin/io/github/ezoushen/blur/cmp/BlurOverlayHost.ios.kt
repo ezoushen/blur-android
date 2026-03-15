@@ -12,6 +12,11 @@ import kotlinx.cinterop.readValue
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import platform.CoreGraphics.CGRectZero
+import platform.Foundation.NSUUID
+import platform.Foundation.setValue
+import platform.QuartzCore.CALayer
+import platform.QuartzCore.CATransaction
+import platform.QuartzCore.kCAGravityResizeAspectFill
 import platform.UIKit.UIApplication
 import platform.UIKit.UIBlurEffect
 import platform.UIKit.UIBlurEffectStyle
@@ -38,7 +43,7 @@ actual fun BlurOverlayHost(
             return@DisposableEffect onDispose { }
         }
 
-        val blurView = createIosBlurView(currentState.config)
+        val blurView = createNativeBlurView(currentState.config)
         blurView.tag = BLUR_VIEW_TAG
         blurView.setFrame(window.bounds)
         blurView.autoresizingMask =
@@ -48,6 +53,7 @@ actual fun BlurOverlayHost(
 
         onDispose {
             blurView.removeFromSuperview()
+            (blurView as? RealTimeBlurContainerView)?.release()
         }
     }
 
@@ -57,8 +63,8 @@ actual fun BlurOverlayHost(
             .distinctUntilChanged()
             .collectLatest { config ->
                 val window = getKeyWindow() ?: return@collectLatest
-                val blurView = findIosBlurView(window) ?: return@collectLatest
-                updateIosBlurView(window, blurView, config)
+                val blurView = findBlurView(window) ?: return@collectLatest
+                updateNativeBlurView(blurView, config)
             }
     }
 
@@ -68,7 +74,7 @@ actual fun BlurOverlayHost(
             .distinctUntilChanged()
             .collectLatest { enabled ->
                 val window = getKeyWindow() ?: return@collectLatest
-                val blurView = findIosBlurView(window) ?: return@collectLatest
+                val blurView = findBlurView(window) ?: return@collectLatest
                 blurView.setHidden(!enabled)
             }
     }
@@ -78,10 +84,87 @@ actual fun BlurOverlayHost(
 
 private const val BLUR_VIEW_TAG: Long = 0x426C7572L
 
+// ---------------------------------------------------------------------------
+// Native blur view using CABackdropLayer (continuous radius, variable blur,
+// all 12 blend modes). Falls back to UIVisualEffectView if extraction fails.
+// ---------------------------------------------------------------------------
+
+/**
+ * Container UIView that manages the CABackdropLayer + tint layer hierarchy.
+ */
 @OptIn(ExperimentalForeignApi::class)
-private fun createIosBlurView(config: BlurOverlayConfig): UIView {
-    // Map blur radius to the nearest system material style (light → heavy).
-    val blurStyle: UIBlurEffectStyle = when {
+private class RealTimeBlurContainerView(
+    frame: kotlinx.cinterop.CValue<platform.CoreGraphics.CGRect>,
+) : UIView(frame) {
+
+    var backdropLayer: CALayer? = null
+    var tintLayer: CALayer? = null
+    var gradientMaskCache: IosGradientMaskCache? = null
+    var isVariableBlur: Boolean = false
+    var isFallback: Boolean = false
+
+    fun release() {
+        gradientMaskCache?.release()
+        gradientMaskCache = null
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun createNativeBlurView(config: BlurOverlayConfig): UIView {
+    val isVariableBlur = config.gradient != null
+
+    val canUseBackdrop = if (isVariableBlur) {
+        IosBackdropLayerProvider.isValidForVariableBlur
+    } else {
+        IosBackdropLayerProvider.isValidForUniformBlur
+    }
+
+    if (canUseBackdrop) {
+        val backdrop = IosBackdropLayerProvider.createBackdropLayer()
+        if (backdrop != null) {
+            return createBackdropBlurView(config, backdrop, isVariableBlur)
+        }
+    }
+
+    return createFallbackBlurView(config)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun createBackdropBlurView(
+    config: BlurOverlayConfig,
+    backdrop: CALayer,
+    isVariableBlur: Boolean,
+): UIView {
+    val container = RealTimeBlurContainerView(CGRectZero.readValue())
+    container.backgroundColor = null
+    container.isVariableBlur = isVariableBlur
+
+    // Configure the backdrop layer via KVC
+    backdrop.setValue(NSUUID().UUIDString, forKey = "groupName")
+    backdrop.setValue(true, forKey = "allowsInPlaceFiltering")
+    container.layer.addSublayer(backdrop)
+    container.backdropLayer = backdrop
+
+    // Create tint layer on top of the backdrop
+    val tintLayer = CALayer()
+    container.layer.addSublayer(tintLayer)
+    container.tintLayer = tintLayer
+
+    if (isVariableBlur) {
+        container.gradientMaskCache = IosGradientMaskCache()
+    }
+
+    applyConfigToBackdropView(container, config)
+
+    return container
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun createFallbackBlurView(config: BlurOverlayConfig): UIView {
+    val container = RealTimeBlurContainerView(CGRectZero.readValue())
+    container.isFallback = true
+
+    val blurStyle = when {
         config.radius <= 5f -> UIBlurEffectStyle.UIBlurEffectStyleSystemUltraThinMaterial
         config.radius <= 15f -> UIBlurEffectStyle.UIBlurEffectStyleSystemThinMaterial
         config.radius <= 30f -> UIBlurEffectStyle.UIBlurEffectStyleSystemMaterial
@@ -90,32 +173,138 @@ private fun createIosBlurView(config: BlurOverlayConfig): UIView {
 
     val blurEffect = UIBlurEffect.effectWithStyle(blurStyle)
     val effectView = UIVisualEffectView(effect = blurEffect)
+    effectView.autoresizingMask =
+        UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+    container.addSubview(effectView)
 
-    // Add tint overlay inside contentView if a tint colour is requested.
     if (config.tintColorValue != 0L) {
-        val argb = config.tintColorValue.toInt()
-        val alpha = ((argb ushr 24) and 0xFF) / 255.0
-        val red = ((argb ushr 16) and 0xFF) / 255.0
-        val green = ((argb ushr 8) and 0xFF) / 255.0
-        val blue = (argb and 0xFF) / 255.0
-
         val tintView = UIView(frame = CGRectZero.readValue())
-        tintView.backgroundColor = UIColor(
-            red = red,
-            green = green,
-            blue = blue,
-            alpha = alpha,
-        )
+        tintView.backgroundColor = uiColorFromPackedValue(config.tintColorValue)
         tintView.autoresizingMask =
             UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
-
         effectView.contentView.addSubview(tintView)
     }
 
-    return effectView
+    return container
 }
 
-private fun findIosBlurView(window: UIWindow): UIView? {
+/**
+ * Apply blur, tint, blend mode, and gradient to a backdrop-based blur view.
+ */
+@OptIn(ExperimentalForeignApi::class)
+private fun applyConfigToBackdropView(
+    container: RealTimeBlurContainerView,
+    config: BlurOverlayConfig,
+) {
+    val backdrop = container.backdropLayer ?: return
+    val tintLayer = container.tintLayer ?: return
+
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+
+    val bounds = container.bounds
+    backdrop.frame = bounds
+    tintLayer.frame = bounds
+
+    val radius = config.radius.toDouble()
+    if (config.gradient != null && container.isVariableBlur) {
+        // Variable blur with gradient mask
+        val maskCache = container.gradientMaskCache ?: IosGradientMaskCache().also {
+            container.gradientMaskCache = it
+        }
+        val mask = maskCache.getOrCreate(config.gradient)
+        if (mask != null) {
+            val filter = IosBackdropLayerProvider.createVariableBlurFilter(radius, mask)
+            if (filter != null) {
+                backdrop.setValue(listOf(filter), forKey = "filters")
+            }
+
+            if (config.tintColorValue != 0L) {
+                tintLayer.backgroundColor = uiColorFromPackedValue(config.tintColorValue)?.CGColor
+                val tintMaskLayer = CALayer()
+                tintMaskLayer.frame = bounds
+                tintMaskLayer.contents = mask
+                tintMaskLayer.contentsGravity = kCAGravityResizeAspectFill
+                tintLayer.mask = tintMaskLayer
+            } else {
+                tintLayer.backgroundColor = null
+                tintLayer.mask = null
+            }
+        }
+    } else {
+        // Uniform blur
+        val filter = IosBackdropLayerProvider.createGaussianBlurFilter(radius)
+        if (filter != null) {
+            backdrop.setValue(listOf(filter), forKey = "filters")
+        }
+
+        if (config.tintColorValue != 0L) {
+            tintLayer.backgroundColor = uiColorFromPackedValue(config.tintColorValue)?.CGColor
+            tintLayer.mask = null
+        } else {
+            tintLayer.backgroundColor = null
+            tintLayer.mask = null
+        }
+    }
+
+    // Scale factor: lower = better performance for uniform blur
+    val scale = if (config.gradient == null) {
+        (1.0 / config.downsampleFactor).coerceIn(0.05, 1.0)
+    } else {
+        1.0
+    }
+    backdrop.setValue(scale, forKey = "scale")
+
+    // Apply blend mode to tint layer via compositingFilter
+    val filterName = IosBlendModeMapper.toCompositingFilterName(config.tintBlendMode)
+    tintLayer.compositingFilter = filterName
+
+    CATransaction.commit()
+}
+
+/**
+ * Update an existing blur view with new configuration.
+ */
+@OptIn(ExperimentalForeignApi::class)
+private fun updateNativeBlurView(blurView: UIView, config: BlurOverlayConfig) {
+    val container = blurView as? RealTimeBlurContainerView
+
+    if (container == null || container.isFallback) {
+        // Fallback: replace entirely
+        val window = blurView.superview as? UIWindow ?: return
+        blurView.removeFromSuperview()
+        container?.release()
+
+        val newView = createNativeBlurView(config)
+        newView.tag = BLUR_VIEW_TAG
+        newView.setFrame(window.bounds)
+        newView.autoresizingMask =
+            UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+        window.insertSubview(newView, atIndex = 0)
+        return
+    }
+
+    // Check if blur mode changed (uniform <-> variable)
+    val needsVariableBlur = config.gradient != null
+    if (needsVariableBlur != container.isVariableBlur) {
+        val window = blurView.superview as? UIWindow ?: return
+        blurView.removeFromSuperview()
+        container.release()
+
+        val newView = createNativeBlurView(config)
+        newView.tag = BLUR_VIEW_TAG
+        newView.setFrame(window.bounds)
+        newView.autoresizingMask =
+            UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+        window.insertSubview(newView, atIndex = 0)
+        return
+    }
+
+    // Update in-place
+    applyConfigToBackdropView(container, config)
+}
+
+private fun findBlurView(window: UIWindow): UIView? {
     val subviews = window.subviews
     for (i in 0 until subviews.count().toInt()) {
         @Suppress("UNCHECKED_CAST")
@@ -125,17 +314,14 @@ private fun findIosBlurView(window: UIWindow): UIView? {
     return null
 }
 
-@OptIn(ExperimentalForeignApi::class)
-private fun updateIosBlurView(window: UIWindow, existing: UIView, config: BlurOverlayConfig) {
-    // UIVisualEffectView doesn't expose its effect style for mutation after init,
-    // so we remove the old view and insert a freshly configured one.
-    existing.removeFromSuperview()
-    val newView = createIosBlurView(config)
-    newView.tag = BLUR_VIEW_TAG
-    newView.setFrame(window.bounds)
-    newView.autoresizingMask =
-        UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
-    window.insertSubview(newView, atIndex = 0)
+private fun uiColorFromPackedValue(packedValue: Long): UIColor? {
+    if (packedValue == 0L) return null
+    val argb = packedValue.toInt()
+    val alpha = ((argb ushr 24) and 0xFF) / 255.0
+    val red = ((argb ushr 16) and 0xFF) / 255.0
+    val green = ((argb ushr 8) and 0xFF) / 255.0
+    val blue = (argb and 0xFF) / 255.0
+    return UIColor(red = red, green = green, blue = blue, alpha = alpha)
 }
 
 /**
@@ -155,6 +341,5 @@ private fun getKeyWindow(): UIWindow? {
             }
         }
     }
-    // Fallback for older scene configurations
     return UIApplication.sharedApplication.keyWindow
 }
