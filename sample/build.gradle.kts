@@ -45,6 +45,7 @@ android {
 
 dependencies {
     implementation(project(":blur-core"))
+    implementation(project(":blur-cmp"))
 
     // AndroidX Core
     implementation(libs.androidx.core.ktx)
