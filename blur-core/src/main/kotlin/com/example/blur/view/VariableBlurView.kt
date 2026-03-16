@@ -346,9 +346,11 @@ class VariableBlurView @JvmOverloads constructor(
     }
 
     override fun draw(canvas: Canvas) {
-        // Prevent infinite recursion during capture
+        // Skip drawing during capture to prevent recursion.
+        // Using return instead of throw to avoid corrupting Compose's RenderNode
+        // recording state when BlurView is hosted inside a Compose render tree.
         if (blurController?.isCapturing() == true) {
-            throw DecorViewCapture.STOP_EXCEPTION
+            return
         }
 
         if (isRendering) {
