@@ -67,12 +67,14 @@ class DecorViewCapture : ContentCapture {
             return false
         }
 
+        // Track which views we hide so we can restore them in finally
+        val hiddenViews = mutableListOf<View>()
+
         try {
             isCapturing = true
 
             // Hide excluded views during capture to prevent their content
             // from appearing in the blurred bitmap (which causes glow artifacts)
-            val hiddenViews = mutableListOf<View>()
             for (view in excludedViews) {
                 if (view.visibility == View.VISIBLE) {
                     view.visibility = View.INVISIBLE
@@ -122,11 +124,9 @@ class DecorViewCapture : ContentCapture {
         } catch (e: Exception) {
             return false
         } finally {
-            // Restore excluded views
-            for (view in excludedViews) {
-                if (view in excludedViews) {
-                    view.visibility = View.VISIBLE
-                }
+            // Restore views that were hidden during capture
+            for (view in hiddenViews) {
+                view.visibility = View.VISIBLE
             }
             isCapturing = false
         }
