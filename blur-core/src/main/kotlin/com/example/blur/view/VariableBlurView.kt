@@ -289,6 +289,33 @@ class VariableBlurView @JvmOverloads constructor(
     fun isLive(): Boolean = isLive
 
     /**
+     * Register a view to exclude from blur capture.
+     */
+    private val pendingExcludedViews = mutableListOf<View>()
+
+    fun addExcludedView(view: View) {
+        val controller = blurController
+        if (controller != null) {
+            controller.addExcludedView(view)
+        } else {
+            pendingExcludedViews.add(view)
+        }
+    }
+
+    fun removeExcludedView(view: View) {
+        pendingExcludedViews.remove(view)
+        blurController?.removeExcludedView(view)
+    }
+
+    private fun flushPendingExcludedViews() {
+        val controller = blurController ?: return
+        for (view in pendingExcludedViews) {
+            controller.addExcludedView(view)
+        }
+        pendingExcludedViews.clear()
+    }
+
+    /**
      * Sets the view to blur. If not set, the view will blur everything behind it.
      *
      * @param view The view to use as the blur source.
@@ -324,6 +351,9 @@ class VariableBlurView @JvmOverloads constructor(
             blurController?.setConfig(blurConfig)
             blurController?.setGradient(blurGradient)
             blurController?.init(this, source)
+
+            // Forward any pending excluded views to the controller
+            flushPendingExcludedViews()
 
             // Add pre-draw listener to update blur before each frame
             decorView?.viewTreeObserver?.addOnPreDrawListener(preDrawListener)

@@ -238,6 +238,40 @@ class BlurView @JvmOverloads constructor(
      */
     fun isLive(): Boolean = isLive
 
+    // Pending excluded views (stored until controller is ready)
+    private val pendingExcludedViews = mutableListOf<View>()
+
+    /**
+     * Register a view to exclude from blur capture.
+     * The view is hidden during capture to prevent its content from appearing
+     * in the blurred bitmap (which causes glow artifacts when the view is also
+     * drawn sharp on top of the blur).
+     */
+    fun addExcludedView(view: View) {
+        val controller = blurController
+        if (controller != null) {
+            controller.addExcludedView(view)
+        } else {
+            pendingExcludedViews.add(view)
+        }
+    }
+
+    /**
+     * Unregister a previously excluded view.
+     */
+    fun removeExcludedView(view: View) {
+        pendingExcludedViews.remove(view)
+        blurController?.removeExcludedView(view)
+    }
+
+    private fun flushPendingExcludedViews() {
+        val controller = blurController ?: return
+        for (view in pendingExcludedViews) {
+            controller.addExcludedView(view)
+        }
+        pendingExcludedViews.clear()
+    }
+
     /**
      * Sets the view to blur. If not set, the view will blur everything behind it.
      *
@@ -274,6 +308,9 @@ class BlurView @JvmOverloads constructor(
         if (source != null) {
             blurController?.setConfig(blurConfig)
             blurController?.init(this, source)
+
+            // Forward any pending excluded views to the controller
+            flushPendingExcludedViews()
 
             // Add pre-draw listener to update blur before each frame
             decorView?.viewTreeObserver?.addOnPreDrawListener(preDrawListener)

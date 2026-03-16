@@ -114,6 +114,21 @@ class BlurController(
     }
 
     /**
+     * Register a view to exclude from capture. The view is hidden during capture
+     * to prevent its content from appearing in the blurred bitmap.
+     */
+    fun addExcludedView(view: View) {
+        (capture as? DecorViewCapture)?.addExcludedView(view)
+    }
+
+    /**
+     * Unregister a previously excluded view.
+     */
+    fun removeExcludedView(view: View) {
+        (capture as? DecorViewCapture)?.removeExcludedView(view)
+    }
+
+    /**
      * Updates the blur if needed.
      *
      * Call this in onPreDraw or before drawing.

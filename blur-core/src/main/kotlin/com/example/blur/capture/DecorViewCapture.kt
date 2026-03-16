@@ -27,6 +27,10 @@ class DecorViewCapture : ContentCapture {
     @Volatile
     private var isCapturing = false
 
+    // Views to hide during capture (e.g., content overlays that should not be blurred).
+    // These are set to INVISIBLE before capture and restored after.
+    private val excludedViews = mutableListOf<View>()
+
     /**
      * Returns true if a capture operation is currently in progress.
      *
@@ -34,6 +38,24 @@ class DecorViewCapture : ContentCapture {
      * infinite recursion.
      */
     fun isCurrentlyCapturing(): Boolean = isCapturing
+
+    /**
+     * Register a view to be hidden during capture.
+     * This prevents the view's content from appearing in the captured bitmap,
+     * avoiding glow artifacts when the view is also drawn sharp on top of the blur.
+     */
+    fun addExcludedView(view: View) {
+        if (view !in excludedViews) {
+            excludedViews.add(view)
+        }
+    }
+
+    /**
+     * Unregister a previously excluded view.
+     */
+    fun removeExcludedView(view: View) {
+        excludedViews.remove(view)
+    }
 
     override fun capture(
         blurView: View,
@@ -47,6 +69,16 @@ class DecorViewCapture : ContentCapture {
 
         try {
             isCapturing = true
+
+            // Hide excluded views during capture to prevent their content
+            // from appearing in the blurred bitmap (which causes glow artifacts)
+            val hiddenViews = mutableListOf<View>()
+            for (view in excludedViews) {
+                if (view.visibility == View.VISIBLE) {
+                    view.visibility = View.INVISIBLE
+                    hiddenViews.add(view)
+                }
+            }
 
             // Get screen positions
             sourceView.getLocationOnScreen(sourceLocation)
@@ -90,6 +122,12 @@ class DecorViewCapture : ContentCapture {
         } catch (e: Exception) {
             return false
         } finally {
+            // Restore excluded views
+            for (view in excludedViews) {
+                if (view in excludedViews) {
+                    view.visibility = View.VISIBLE
+                }
+            }
             isCapturing = false
         }
     }

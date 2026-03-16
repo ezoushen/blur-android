@@ -139,6 +139,14 @@ class VariableBlurController(
         return (capture as? DecorViewCapture)?.isCurrentlyCapturing() == true
     }
 
+    fun addExcludedView(view: View) {
+        (capture as? DecorViewCapture)?.addExcludedView(view)
+    }
+
+    fun removeExcludedView(view: View) {
+        (capture as? DecorViewCapture)?.removeExcludedView(view)
+    }
+
     /**
      * Updates the blur if needed.
      *
